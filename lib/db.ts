@@ -1,10 +1,10 @@
-import { neon, NeonQueryFunction } from "@neondatabase/serverless";
+import postgres from "postgres";
 
-// Initialisation volontairement paresseuse : si on appelait neon() au chargement
-// du module et qu'aucune base n'est encore branchée, Next.js planterait au
-// build (il importe les routes pour "collecter les données de page"), avant
-// même qu'une requête ne soit exécutée.
-let cachedSql: NeonQueryFunction<false, false> | null = null;
+// Initialisation volontairement paresseuse : si on appelait postgres() au
+// chargement du module et qu'aucune base n'est encore branchée, Next.js
+// planterait au build (il importe les routes pour "collecter les données
+// de page"), avant même qu'une requête ne soit exécutée.
+let cachedSql: ReturnType<typeof postgres> | null = null;
 
 function getSql() {
   if (cachedSql) return cachedSql;
@@ -12,21 +12,27 @@ function getSql() {
     process.env.DATABASE_URL ||
     process.env.POSTGRES_URL ||
     process.env.POSTGRES_URL_NON_POOLING ||
-    process.env.POSTGRES_PRISMA_URL;
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.NILEDB_URL ||
+    process.env.NILEDB_POSTGRES_URL;
 
   if (!connectionString) {
     throw new Error(
       "Aucune base de données connectée. Dans Vercel : Storage → Create Database → Postgres."
     );
   }
-  cachedSql = neon(connectionString);
+  // Client Postgres standard (TCP/SSL) : fonctionne avec n'importe quel
+  // fournisseur (Nile, Neon, Supabase, RDS...), contrairement au driver
+  // @neondatabase/serverless qui ne parle que le protocole HTTP propriétaire
+  // de Neon.
+  cachedSql = postgres(connectionString, { ssl: "require" });
   return cachedSql;
 }
 
 // Proxy tagged-template : délègue à la vraie fonction sql, créée à la
 // première utilisation réelle plutôt qu'à l'import du module.
-const sql: NeonQueryFunction<false, false> = ((...args: Parameters<NeonQueryFunction<false, false>>) =>
-  getSql()(...args)) as NeonQueryFunction<false, false>;
+const sql = ((...args: Parameters<ReturnType<typeof postgres>>) =>
+  getSql()(...args)) as ReturnType<typeof postgres>;
 
 export type Certificate = {
   id: number;
